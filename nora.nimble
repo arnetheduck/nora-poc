@@ -11,5 +11,5 @@ bin = @["nora"]
 
 requires "nim >= 2.0.12",
   "web3",
-  "https://github.com/seaqt/nim-seaqt.git#522526740f3c6311164183344d18970a610ca842",
+  "https://github.com/seaqt/nim-seaqt.git#c6288110986a0d4241157484269fe87000e666c3",
   "stew"

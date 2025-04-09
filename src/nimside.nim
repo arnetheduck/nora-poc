@@ -610,23 +610,12 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
 
     post.add quote do:
       proc `onSignal`*(sender: `typName`, `callback`: `callbackTy`) =
-        let tmp = new QObject_connectSlot
-        tmp[] = proc(args: pointer) =
-          let `argv` = cast[ptr UncheckedArray[pointer]](args)
+        proc inner(args: pointer) =
+          let `argv` {.used.} = cast[ptr UncheckedArray[pointer]](args)
           `callCallback`
 
-        GC_ref(tmp)
-
-        discard gen_qobjectdefs_types.QMetaObjectConnection(
-          h: QObject_connectRawSlot(
-            sender.h,
-            `signature`,
-            sender.h,
-            cast[int](addr(tmp[])),
-            nil,
-            0,
-            `typName`.staticMetaObject().h,
-          )
+        discard QObject.connectRaw(
+          sender[], `signature`, sender[], inner, 0, `typName`.staticMetaObject()
         )
 
   (pre, post)

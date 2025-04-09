@@ -151,7 +151,7 @@ type QBuiltinMetaType* {.pure.} = enum
   QStringList = "QStringList"
   QVariantList = "QVariantList"
 
-proc metaTypeId(v: QBuiltinMetaType): cint =
+proc metaTypeId*(v: QBuiltinMetaType): cint =
   case v
   of QBuiltinMetaType.UnknownType: QMetaTypeTypeEnum.UnknownType
   of QBuiltinMetaType.Bool: QMetaTypeTypeEnum.Bool
@@ -176,7 +176,7 @@ proc metaTypeId(v: QBuiltinMetaType): cint =
   of QBuiltinMetaType.QStringList: QMetaTypeTypeEnum.QStringList
   of QBuiltinMetaType.QVariantList: QMetaTypeTypeEnum.QVariantList
 
-proc resolve*(_: type QBuiltinMetaType, T: type): QBuiltinMetaType =
+func resolve*(_: type QBuiltinMetaType, T: type): QBuiltinMetaType =
   when T is void:
     QBuiltinMetaType.Void
   elif T is bool:
@@ -192,8 +192,25 @@ proc resolve*(_: type QBuiltinMetaType, T: type): QBuiltinMetaType =
   else:
     raiseAssert "Unsupported type: " & $T
 
-proc fromNimType(_: type QBuiltinMetaType, v: string): QBuiltinMetaType =
-  case v
+func fromQtType*(_: type QBuiltinMetaType, name: string): QBuiltinMetaType =
+  var ret = QBuiltinMetaType.UnknownType
+  for v in QBuiltinMetaType:
+    if $v == name:
+      ret = v
+      break
+  ret
+
+func fromMetaTypeId*(_: type QBuiltinMetaType, id: cint): QBuiltinMetaType =
+  var ret = QBuiltinMetaType.UnknownType
+  for v in QBuiltinMetaType:
+    if v.metaTypeId() == id:
+      ret = v
+      break
+  doAssert ret != QBuiltinMetaType.UnknownType
+  ret
+
+func fromNimType*(_: type QBuiltinMetaType, name: string): QBuiltinMetaType =
+  case name
   of "bool":
     QMetaTypeTypeEnum.Bool
   of "cint", "int32":
@@ -249,7 +266,7 @@ func isSignal*(m: MethodDef): bool =
 func isSlot*(m: MethodDef): bool =
   (m.flags and MethodSlot) > 0
 
-proc signalDef*(
+func signalDef*(
     _: type MethodDef, name: string, params: openArray[ParamDef]
 ): MethodDef =
   MethodDef(
@@ -259,7 +276,7 @@ proc signalDef*(
     flags: MethodSignal or AccessPublic,
   )
 
-proc slotDef*(
+func slotDef*(
     _: type MethodDef, name: string, returnMetaType: string, params: openArray[ParamDef]
 ): MethodDef =
   MethodDef(
@@ -335,23 +352,28 @@ proc genMetaObjectData*(
 
   template addType(metaTypeName: string): cuint =
     doAssert metaTypeName.len > 0
-    when nimvm:
-      var ret = QBuiltinMetaType.UnknownType
-      for v in QBuiltinMetaType:
-        if $v == metaTypeName:
-          ret = v
-          break
 
-      if ret == QBuiltinMetaType.UnknownType:
-        addString(metaTypeName) or IsUnresolvedType
-      else:
-        cuint ret.metaTypeId()
+    var id = QMetaTypeTypeEnum.UnknownType()
+    when nimvm:
+      id = QBuiltinMetaType.fromQtType(metaTypeName).metaTypeId()
     else:
-      let mt = QMetaType.fromName(metaTypeName.toOpenArrayByte(0, metaTypeName.high()))
-      if mt.isValid():
-        cuint mt.id()
-      else:
-        addString(metaTypeName) or IsUnresolvedType
+      id =
+        when compiles(
+          QMetaType.fromName(metaTypeName.toOpenArrayByte(0, metaTypeName.high()))
+        ):
+          let mt =
+            QMetaType.fromName(metaTypeName.toOpenArrayByte(0, metaTypeName.high()))
+          if mt.isValid():
+            mt.id()
+          else:
+            QMetaTypeTypeEnum.UnknownType
+        else:
+          QBuiltinMetaType.fromQtType(metaTypeName).metaTypeId()
+
+    if id == QMetaTypeTypeEnum.UnknownType:
+      addString(metaTypeName) or IsUnresolvedType
+    else:
+      cuint id
 
   block: # classinfo
     discard
@@ -415,7 +437,10 @@ proc genMetaObjectData*(
         x += 1
       x
     else:
-      cast[cuint](-1)
+      when QMetaObjectRevision >= 9:
+        cast[cuint](-1)
+      else:
+        cuint(0)
 
   block: # Properties
     for p in props:
