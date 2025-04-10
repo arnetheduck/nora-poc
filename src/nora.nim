@@ -120,9 +120,6 @@ proc processUiEvents() {.async: (raises: []).} =
     await noCancel sleepAsync(millis(1000 div 60))
     loop.processEvents(QEventLoopProcessEventsFlagEnum.ExcludeUserInputEvents, 1)
 
-  # Ugly hack to process UI events while we're performing async work
-  asyncSpawn processUiEvents()
-
 proc main(uri: string) =
   let
     _ = QApplication.create()
