@@ -18,5 +18,7 @@ nimble setup
 # installing dependencies and configuring the environment
 nimble setup_android
 # build, deploy and run
+# Make sure there's an android device/emulator attached
+
 nimble android_run
 ```
