@@ -153,11 +153,12 @@ proc initApp(uri: string) =
   )
   discard QApplication.exec()
 
-proc NimMain() {.importc.}
-proc main(): cint {.exportc, dynlib, cdecl.} =
-  NimMain() # Initialize Nim runtime first
-  initApp("http://localhost:8545")
-  return 0
+when appType == "lib" or appType == "staticlib":
+  proc NimMain() {.importc.}
+  proc main(): cint {.exportc, dynlib, cdecl.} =
+    NimMain() # Initialize Nim runtime first
+    initApp("http://localhost:8545")
+    return 0
 
 when isMainModule and appType != "lib" and appType != "staticlib":
-  main()
+  initApp("http://localhost:8545")
