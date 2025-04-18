@@ -1,5 +1,5 @@
 import
-  std/[json, os, sequtils],
+  std/[json, os, sequtils, strutils],
   web3,
   json_rpc/[client, private/jrpc_sys],
   chronos,
@@ -11,13 +11,14 @@ import
     qqmlcontext, qurl, qobject, qvariant, qmetatype, qmetaproperty, qstringlistmodel,
     qeventloop,
   ],
-  seaqt/QtCore/gen_qnamespace,
+  seaqt/QtCore/[gen_qnamespace, qtcore_pkg],
   ./nimside
 
 const
   curPath = currentSourcePath.parentDir
-  rccPath = gorge("pkg-config --variable=libexecdir Qt6Core") & "/rcc"
-  cflags = gorge("pkg-config --cflags Qt6Core")
+  qtMajor = QtCoreGenVersion.split(".")[0]
+  rccPath = gorge("pkg-config --variable=host_bins Qt" & qtMajor & "Core") & "/rcc"
+  cflags = gorge("pkg-config --cflags Qt" & qtMajor & "Core")
 
 static:
   discard staticExec(
@@ -120,7 +121,7 @@ proc processUiEvents() {.async: (raises: []).} =
     await noCancel sleepAsync(millis(1000 div 60))
     loop.processEvents(QEventLoopProcessEventsFlagEnum.ExcludeUserInputEvents, 1)
 
-proc main(uri: string) =
+proc initApp(uri: string) =
   let
     _ = QApplication.create()
     main = MainModel(
@@ -143,7 +144,7 @@ proc main(uri: string) =
 
   main.onApiChanged(
     proc() =
-      if main.params() == nil or main.params().api.name != main.api:
+      if main.params == nil or main.params.api.name != main.api:
         for x in apiList:
           if x.name == main.api:
             main.params = ParamsList.init(x)
@@ -152,5 +153,11 @@ proc main(uri: string) =
   )
   discard QApplication.exec()
 
-when isMainModule:
-  main("http://localhost:8545")
+proc NimMain() {.importc.}
+proc main(): cint {.exportc, dynlib, cdecl.} =
+  NimMain() # Initialize Nim runtime first
+  initApp("http://localhost:8545")
+  return 0
+
+when isMainModule and appType != "lib" and appType != "staticlib":
+  main()

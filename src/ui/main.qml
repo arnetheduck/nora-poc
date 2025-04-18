@@ -1,6 +1,8 @@
-import QtQuick
+import QtQuick 2.15
 import QtQuick.Controls 2.15
-import QtQuick.Layouts 2.15
+import QtQuick.Layouts 1.15
+import QtQml.Models 2.15
+import QtQuick.Window 2.15
 
 Window {
     width: 1024
@@ -96,7 +98,8 @@ Window {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         height: childrenRect.height
-                        selectionModel: ItemSelectionModel {}
+                        property bool editing: false
+                        clip: true
 
                         model: main.params
                         columnWidthProvider: function (column) {
@@ -108,21 +111,34 @@ Window {
                         }
                         delegate: Rectangle {
                             border.width: 1
+                            implicitHeight: 30
+                            color: grid.currentRow === row ? "lightsteelblue" : "white"
 
                             Text {
                                 anchors.centerIn: parent
                                 text: display
+                                visible: !grid.editing
                             }
 
-                            TableView.editDelegate: TextField {
+                            TextField {
                                 anchors.fill: parent
                                 text: display
                                 horizontalAlignment: TextInput.AlignHCenter
                                 verticalAlignment: TextInput.AlignVCenter
-                                Component.onCompleted: selectAll()
-
-                                TableView.onCommit: {
+                                visible: grid.editing
+                                onEditingFinished: {
                                     display = text;
+                                    grid.editing = false;
+                                }
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: {
+                                    grid.currentRow = row;
+                                    if (!grid.editing) {
+                                        grid.editing = true;
+                                    }
                                 }
                             }
                         }

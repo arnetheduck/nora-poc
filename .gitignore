@@ -4,3 +4,6 @@ nimbledeps
 vendor
 ./nora
 /src/resources.cpp
+android.build
+android
+

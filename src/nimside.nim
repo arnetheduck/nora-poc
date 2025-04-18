@@ -1,4 +1,4 @@
-import ./metaobjectgen, seaqt/[qobject, qvariant], std/[sequtils, strutils, macros]
+import ./metaobjectgen, seaqt/[qobject, qvariant, qmetatype], std/[sequtils, strutils, macros]
 
 template toOpenArrayByte(v: string): openArray[byte] =
   v.toOpenArrayByte(0, v.high()) # double v eval!
@@ -8,7 +8,10 @@ proc assignMemCpy[T](v: var T, p: pointer) =
 
 proc assignMemCpy(v: var string, p: pointer) =
   # TODO using variant to gain access to generated types
-  let tmp = QVariant.create(QMetaType.fromName("QString".toOpenArrayByte()), p)
+  when compiles(QVariant.create(QBuiltinMetaType.QString.metaTypeId(), p)):
+    let tmp = QVariant.create(QBuiltinMetaType.QString.metaTypeId(), p)
+  else:
+    let tmp = QVariant.create(QMetaType.fromName("QString".toOpenArrayByte()), p)
   v = tmp.toString()
   tmp.delete()
 
