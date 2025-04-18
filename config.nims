@@ -1,4 +1,4 @@
-switch("debugger", "native")
+# switch("debugger", "native")
 
 # begin Nimble config (version 2)
 when withDir(thisDir(), system.fileExists("nimble.paths")):

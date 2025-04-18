@@ -11,5 +11,11 @@ bin = @["nora"]
 
 requires "nim >= 2.0.12",
   "web3",
-  "https://github.com/seaqt/nim-seaqt.git#c6288110986a0d4241157484269fe87000e666c3",
+  "https://github.com/alexjba/nim-seaqt.git#qt-6.4-android",
+  "https://github.com/alexjba/prl-to-pc.git",
   "stew"
+
+# Include task scripts
+include "setup_android.nims"
+# include "deploy_android.nims"
+include "deploy_android.nims"

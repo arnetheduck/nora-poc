@@ -1,0 +1,26 @@
+{
+  "sdk": {
+    "version": "commandlinetools-latest",
+    "components": [
+      "cmdline-tools;latest",
+      "platform-tools",
+      "build-tools;35.0.1",
+      "platforms;android-35", // 33 - qt5; 35 - qt6; 34 - qt6.4
+      "ndk;26.1.10909125", // 21.3.6528147 - qt5; 26.1.10909125 - qt6.8; 25.1.8937393 - qt6.4
+      "emulator"
+    ],
+    "platform": "android-35",
+    "ndk": "26.1.10909125"
+  },
+  "qt": {
+    "version": "6.8.3"
+  },
+  // Tools will be downloaded here
+  "paths": {
+    "sdk_root": "android/tools/sdk",
+    "ndk_root": "android/tools/sdk/ndk/26.1.10909125",
+    "qt_root": "android/tools/qt",
+    "java_home": "android/tools/jdk",
+    "gradle_home": "android/tools/gradle"
+  }
+} 
