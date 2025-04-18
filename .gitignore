@@ -6,4 +6,4 @@ vendor
 /src/resources.cpp
 android.build
 android
-
+.env
