@@ -10,6 +10,7 @@ nim c -r nora/nora
 
 #### Android
 Works on MacOs and Linux
+
 Might work on Windows
 
 ```sh
