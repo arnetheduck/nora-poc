@@ -11,7 +11,7 @@ bin = @["nora"]
 
 requires "nim >= 2.0.12",
   "web3",
-  "https://github.com/seaqt/nim-seaqt.git#qt-6.4",
+  "https://github.com/alexjba/nim-seaqt.git#qt-6.4-android",
   "https://github.com/alexjba/prl-to-pc.git",
   "stew"
 

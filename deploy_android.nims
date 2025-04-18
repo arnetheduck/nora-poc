@@ -251,6 +251,12 @@ task android_deploy, "Deploy Android App":
                 javaHomeEnv
             else:
                 workspaceDir / javaHomeEnv
+    hostPlatform = when defined(windows): 
+                "windows-x86_64"
+            elif defined(macosx):
+                "darwin-x86_64" 
+            else:
+                "linux-x86_64"
     qtAndroidPath = getQtDir(arm64)
 
   # Run androiddeployqt
@@ -284,13 +290,13 @@ task android_deploy, "Deploy Android App":
     "tool-prefix": "llvm",
     "rcc-binary": hostQtLibexecPath & "/rcc",
     "qml-importscanner-binary": hostQtLibexecPath & "/qmlimportscanner",
-    "ndk-host": "darwin-x86_64",
+    "ndk-host": hostPlatform,
     "architectures": {"arm64-v8a":"aarch64-linux-android"},
     "android-min-sdk-version": "21",
     "android-target-sdk-version": "28",
     "qml-import-paths": workspaceDir / QmlResourcesDir,
     "qml-root-path": workspaceDir / "src",
-    "stdcpp-path": androidNdk / "toolchains/llvm/prebuilt/darwin-x86_64/sysroot/usr/lib/",
+    "stdcpp-path": androidNdk / "toolchains/llvm/prebuilt/" & hostPlatform & "/sysroot/usr/lib/",
     "qrcFiles": workspaceDir / "src/resources.qrc",
     "application-binary": "nora"
   }

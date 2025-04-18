@@ -415,20 +415,16 @@ task install_jdk, "Installs required JDK for Android development":
       removeDirRecursive(javaHome)
       ensureDirExists(javaHome)
     
-    when defined(osx):
-      # On macOS, copy contents of Home directory
-      # Use shell glob expansion to copy
-      for kind, path in walkDir(srcDir):
-        let basename = path.splitPath().tail
-        let targetPath = javaHome / basename
-        let cpItemCmd = "cp -R " & quoteShell(path) & " " & quoteShell(targetPath)
-        discard runCommand(cpItemCmd)
+    # On macOS, copy contents of Home directory
+    # Use shell glob expansion to copy
+    for kind, path in walkDir(srcDir):
+      let basename = path.splitPath().tail
+      let targetPath = javaHome / basename
+      let cpItemCmd = "cp -R " & quoteShell(path) & " " & quoteShell(targetPath)
+      discard runCommand(cpItemCmd)
 
-      # Cleanup
-      removeDirRecursive(extractedDir)
-    else:
-      # On other platforms, move the directory
-      moveDirCommand(srcDir, javaHome)
+    # Cleanup
+    removeDirRecursive(extractedDir)
       
   # Verify java binary is now in place
   if fileExists(javaHome / "bin" / "java"):
