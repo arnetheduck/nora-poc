@@ -31,11 +31,16 @@ Window {
                 model: main.urls
                 textRole: "display"
                 onAccepted: {
-                    if (find(editText) === -1)
+                    if (find(editText) === -1) {
                         model.insertRow(model.rowCount())
                         model.setData(model.index(model.rowCount() -1, 0), editText, 0)
-                    main.url = editText
+                    }
                 }
+            }
+            Binding {
+                target: main
+                property: "url"
+                value: serverUrl.currentText
             }
         }
 

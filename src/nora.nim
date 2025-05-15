@@ -1,5 +1,5 @@
 import
-  std/[json, os, sequtils, strutils],
+  std/[json, macros, os, sequtils, strutils],
   web3,
   json_rpc/[client, private/jrpc_sys],
   chronos,
@@ -14,15 +14,33 @@ import
   seaqt/QtCore/[gen_qnamespace, qtcore_pkg],
   ./nimside
 
+func gorgeOrFail(cmd: string): string {.compileTime.} =
+  let (output, exitCode) = gorgeEx(cmd)
+  if exitCode != 0:
+    error(output)
+  output
+
+func findRcc(): string {.compileTime.} =
+  let
+    qtMajor = QtCoreGenVersion.split(".")[0]
+    vars = gorgeOrFail("pkg-config --print-variables Qt" & qtMajor & "Core")
+    # On android, we need host_bins it seems? TODO..
+    dir = if "host_bins" in vars: "host_bins" else: "libexecdir"
+  gorgeOrFail("pkg-config --variable=" & dir & " Qt" & qtMajor & "Core") & "/rcc"
+
 const
   curPath = currentSourcePath.parentDir
   qtMajor = QtCoreGenVersion.split(".")[0]
-  rccPath = gorge("pkg-config --variable=host_bins Qt" & qtMajor & "Core") & "/rcc"
-  cflags = gorge("pkg-config --cflags Qt" & qtMajor & "Core")
+  rccPath = findRcc()
+  cflags = gorgeOrFail("pkg-config --cflags Qt" & qtMajor & "Core")
+
+when defined(gcc) or defined(clang):
+  # Needed to work around some functions becoming const in newer qt versions
+  {.passC: "-fpermissive".}
 
 static:
-  discard staticExec(
-    rccPath & " " & curPath & "/resources.qrc -o " & curPath & "/resources.cpp"
+  discard gorgeOrFail(
+    rccPath & " " & curPath & "/resources.qrc -no-zstd  -o " & curPath & "/resources.cpp"
   )
 {.compile(curPath & "/resources.cpp", cflags).}
 
@@ -125,9 +143,7 @@ proc initApp(uri: string) =
   let
     _ = QApplication.create()
     main = MainModel(
-      urls: QStringListModel.create([uri]),
-      url: uri,
-      apiNames: apiList.mapIt(it.name),
+      urls: QStringListModel.create([uri]), url: uri, apiNames: apiList.mapIt(it.name)
     )
     engine = QQmlApplicationEngine.create()
   main.params = ParamsList.init(apiList[0])
