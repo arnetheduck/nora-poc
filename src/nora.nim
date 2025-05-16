@@ -1,15 +1,15 @@
 import
   std/[json, macros, os, sequtils, strutils],
   web3,
+  chronicles,
   json_rpc/[client, private/jrpc_sys],
   chronos,
-  ./apicalls
+  ./[apicalls, threadchannel]
 
 import
   seaqt/[
     qapplication, qabstractlistmodel, qabstracttablemodel, qqmlapplicationengine,
     qqmlcontext, qurl, qobject, qvariant, qmetatype, qmetaproperty, qstringlistmodel,
-    qeventloop,
   ],
   seaqt/QtCore/[gen_qnamespace, qtcore_pkg],
   ./nimside
@@ -35,7 +35,8 @@ const
   cflags = gorgeOrFail("pkg-config --cflags Qt" & qtMajor & "Core")
 
 when defined(gcc) or defined(clang):
-  # Needed to work around some functions becoming const in newer qt versions
+  # TODO work around some functions becoming const in newer qt versions which
+  #      messes up seaqt
   {.passC: "-fpermissive".}
 
 static:
@@ -44,60 +45,24 @@ static:
   )
 {.compile(curPath & "/resources.cpp", cflags).}
 
+# Simple inheritance from QAbstractItemModel - since we're not exposing any
+# new signals / slots, we don't really need qobject here
 type ParamsList = ref object of VirtualQAbstractTableModel
   api: CallSig
   values: seq[string]
-
-qobject:
-  type MainModel = ref object of VirtualQObject
-    urls {.qproperty(write = false, notify = false).}: QStringListModel
-    url {.qproperty.}: string
-    apiNames* {.qproperty(write = false, notify = false).}: seq[string]
-    response* {.qproperty.}: string
-    api* {.qproperty.}: string
-    params {.qproperty(write = false).}: ParamsList
-
-  proc run(m: MainModel) {.slot, raises: [].} =
-    m.setResponse:
-      if m.params == nil:
-        "No params"
-      else:
-        try:
-          let web3 = waitFor newWeb3(m.url)
-          defer:
-            discard
-            # TODO crash on exception when this is enabled
-            # discard web3.provider.close()
-
-          let params = RequestParamsTx(
-            kind: rpPositional,
-            positional:
-              m.params.api.params.zip(m.params.values).mapIt(it[0].encode(it[1])),
-          )
-
-          let x = waitFor web3.provider.call(m.params.api.name, params)
-          JrpcConv.encode(parseJson(string(x)), pretty = true)
-        except CatchableError as e:
-          e.msg & "\n" & e.getStackTrace()
 
 proc init(_: type ParamsList, api: CallSig): ParamsList =
   let ret = ParamsList(api: api, values: api.params.mapIt(it.def))
   QAbstractTableModel.create(ret)
   ret
 
-method rowCount*(
-    self: ParamsList, parent: gen_qabstractitemmodel_types.QModelIndex
-): cint =
+method rowCount*(self: ParamsList, parent: QModelIndex): cint =
   cint self.api.params.len
 
-method columnCount*(
-    self: ParamsList, parent: gen_qabstractitemmodel_types.QModelIndex
-): cint =
+method columnCount*(self: ParamsList, parent: QModelIndex): cint =
   3
 
-method data*(
-    self: ParamsList, index: gen_qabstractitemmodel_types.QModelIndex, role: cint
-): gen_qvariant_types.QVariant =
+method data*(self: ParamsList, index: QModelIndex, role: cint): QVariant =
   let row = index.row()
   case index.column
   of 0:
@@ -109,8 +74,7 @@ method data*(
   else:
     QVariant.create()
 
-method flags*(self: ParamsList, index: gen_qabstractitemmodel_types.QModelIndex): cint =
-  debugEcho "flags ", index.column()
+method flags*(self: ParamsList, index: QModelIndex): cint =
   if index.column() == 2:
     ItemFlagEnum.ItemIsSelectable or ItemFlagEnum.ItemIsEnabled or
       ItemFlagEnum.ItemIsEditable
@@ -118,10 +82,7 @@ method flags*(self: ParamsList, index: gen_qabstractitemmodel_types.QModelIndex)
     ItemFlagEnum.ItemIsSelectable or ItemFlagEnum.ItemIsEnabled
 
 method setData*(
-    self: ParamsList,
-    index: gen_qabstractitemmodel_types.QModelIndex,
-    value: gen_qvariant_types.QVariant,
-    role: cint,
+    self: ParamsList, index: QModelIndex, value: QVariant, role: cint
 ): bool =
   if index.column == 2:
     self.values[index.row()] = value.toString()
@@ -130,14 +91,100 @@ method setData*(
   else:
     false
 
-proc processUiEvents() {.async: (raises: []).} =
-  # Ugly hack to process UI events while we're performing async work - sleepAsync
-  # ensures it's only activated when a chronos loop is running
-  var loop = QEventLoop.create()
+type Request = object
+  url: string
+  name: string
+  params: RequestParamsTx
 
-  while true:
-    await noCancel sleepAsync(millis(1000 div 60))
-    loop.processEvents(QEventLoopProcessEventsFlagEnum.ExcludeUserInputEvents, 1)
+qobject:
+  type WorkerObject = ref object of VirtualQObject
+    ## QObject with signal used as a thread-safe channel to send messages from
+    ## the chronos worker thread to the UI thread
+
+  proc respond(self: WorkerObject, res: string) {.signal, raises: [], gcsafe.}
+
+proc callWeb3(
+    url, name: string, params: RequestParamsTx
+): Future[string] {.async: (raises: [CancelledError]).} =
+  try:
+    let web3 = await newWeb3(url)
+    defer:
+      discard web3.provider.close()
+
+    let x = await web3.provider.call(name, params)
+    JrpcConv.encode(parseJson(string(x)), pretty = true)
+  except CancelledError as exc:
+    raise exc
+  except CatchableError as exc:
+    exc.msg
+
+type
+  ApiChannel = ThreadChannel[Request]
+  WorkerObjectPtr = typeof(addr WorkerObject()[])
+  ThreadArg = tuple[chan: ptr ApiChannel, responder: WorkerObjectPtr]
+
+proc processOne(
+    chan: ptr ApiChannel, responder: WorkerObjectPtr
+): Future[bool] {.async: (raises: []).} =
+  try:
+    let req = await chan.recv()
+    if req.name.len == 0:
+      return false
+
+    let resp = await callWeb3(req.url, req.name, req.params)
+    responder.respond(resp)
+  except CancelledError as exc:
+    return false
+  except CatchableError as exc:
+    echo exc.getStackTrace()
+
+  true
+
+proc chronosThread(arg: ThreadArg) {.thread, raises: [].} =
+  notice "Starting chronos loop"
+
+  while waitFor processOne(arg.chan, arg.responder):
+    discard
+
+  notice "Stopped chronos loop"
+
+qobject:
+  type MainModel = ref object of VirtualQObject
+    urls {.qproperty(write = false, notify = false).}: QStringListModel
+    url {.qproperty.}: string
+    apiNames* {.qproperty(write = false, notify = false).}: seq[string]
+    response* {.qproperty.}: string
+    api* {.qproperty.}: string
+    params {.qproperty(write = false).}: ParamsList
+
+    inflight {.qproperty.}: int
+
+    worker: WorkerObject
+    chan: ApiChannel
+
+  proc run(m: MainModel) {.slot, raises: [].} =
+    m.setResponse:
+      if m.params == nil:
+        "No params"
+      else:
+        try:
+          let params = RequestParamsTx(
+            kind: rpPositional,
+            positional:
+              m.params.api.params.zip(m.params.values).mapIt(it[0].encode(it[1])),
+          )
+
+          if not m.chan.trySend(
+            Request(url: m.url, name: m.params.api.name, params: params)
+          ):
+            "Could not send params"
+          else:
+            m.setInflight(m.inflight + 1)
+
+            "Calling " & m.url & " " & m.params.api.name & "\n" &
+              JrpcSys.encode(params, pretty = true)
+        except CatchableError as exc:
+          "Can't encode request: " & exc.msg
 
 proc initApp(uri: string) =
   let
@@ -146,9 +193,29 @@ proc initApp(uri: string) =
       urls: QStringListModel.create([uri]), url: uri, apiNames: apiList.mapIt(it.name)
     )
     engine = QQmlApplicationEngine.create()
+
   main.params = ParamsList.init(apiList[0])
+  main.worker = WorkerObject()
+  main.worker.setup()
+
+  main.worker.onRespond proc(v: string) =
+    main.setInflight(main.inflight - 1)
+    main.setResponse(v)
 
   main.setup()
+
+  main.onApiChanged proc() =
+    if main.params == nil or main.params.api.name != main.api:
+      for x in apiList:
+        if x.name == main.api:
+          main.params = ParamsList.init(x)
+          main.paramsChanged()
+          break
+
+  main.chan.open()
+
+  var ct: Thread[ThreadArg]
+  createThread(ct, chronosThread, (addr main.chan, addr main.worker[]))
 
   engine.rootContext().setContextProperty("main", main[])
 
@@ -156,18 +223,12 @@ proc initApp(uri: string) =
   engine.load(QUrl.create("qrc:/ui/main.qml"))
   # engine.load(QUrl.create("file://home/arnetheduck/status/nora/src/ui/main.qml"))
 
-  asyncSpawn processUiEvents()
-
-  main.onApiChanged(
-    proc() =
-      if main.params == nil or main.params.api.name != main.api:
-        for x in apiList:
-          if x.name == main.api:
-            main.params = ParamsList.init(x)
-            main.paramsChanged()
-            break
-  )
   discard QApplication.exec()
+
+  discard main.chan.trySend(default(Request))
+  ct.joinThread()
+
+  main.chan.close()
 
 when appType == "lib" or appType == "staticlib":
   proc NimMain() {.importc.}

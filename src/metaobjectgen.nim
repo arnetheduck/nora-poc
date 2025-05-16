@@ -181,6 +181,15 @@ func resolve*(_: type QBuiltinMetaType, T: type): QBuiltinMetaType =
     QBuiltinMetaType.Void
   elif T is bool:
     QBuiltinMetaType.Bool
+  elif T is int:
+    when sizeof(int) == sizeof(cint):
+      QBuiltinMetaType.Int
+    elif sizeof(int) == sizeof(clong):
+      QBuiltinMetaType.Long
+    elif sizeof(int) == sizeof(clonglong):
+      QBuiltinMetaType.LongLong
+    else:
+      raiseAssert "Unsupported integer size " & $sizeof(int)
   elif T is string:
     QBuiltinMetaType.QString
   elif T is seq[string]:
@@ -242,19 +251,23 @@ func fromNimType*(_: type QBuiltinMetaType, name: string): QBuiltinMetaType =
   of "void":
     QMetaTypeTypeEnum.Void
   of "int":
-    when sizeof(int) == sizeof(clonglong):
-      QMetaTypeTypeEnum.LongLong
-    elif sizeof(int) == sizeof(cint):
-      QMetaType.Int
+    when sizeof(int) == sizeof(cint):
+      QBuiltinMetaType.Int
+    elif sizeof(int) == sizeof(clong):
+      QBuiltinMetaType.Long
+    elif sizeof(int) == sizeof(clonglong):
+      QBuiltinMetaType.LongLong
     else:
       raiseAssert "Unsupported integer size " & $sizeof(int)
   of "uint":
-    when sizeof(uint) == sizeof(culonglong):
-      QMetaTypeTypeEnum.ULongLong
-    elif sizeof(uint) == sizeof(cuint):
-      QMetaType.UInt
+    when sizeof(uint) == sizeof(cuint):
+      QBuiltinMetaType.UInt
+    elif sizeof(uint) == sizeof(culong):
+      QBuiltinMetaType.ULong
+    elif sizeof(uint) == sizeof(culonglong):
+      QBuiltinMetaType.ULongLong
     else:
-      raiseAssert "Unsupported integer size " & $sizeof(int)
+      raiseAssert "Unsupported integer size " & $sizeof(uint)
   else:
     QMetaTypeTypeEnum.UnknownType
 

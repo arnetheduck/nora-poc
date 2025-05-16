@@ -32,8 +32,8 @@ Window {
                 textRole: "display"
                 onAccepted: {
                     if (find(editText) === -1) {
-                        model.insertRow(model.rowCount())
-                        model.setData(model.index(model.rowCount() -1, 0), editText, 0)
+                        model.insertRow(model.rowCount());
+                        model.setData(model.index(model.rowCount() - 1, 0), editText, 0);
                     }
                 }
             }
@@ -85,9 +85,17 @@ Window {
                         }
                     }
                 }
-                Button {
-                    text: "Run"
-                    onClicked: main.run()
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: "Run"
+                        onClicked: main.run()
+                        enabled: main.inflight == 0
+                    }
+
+                    BusyIndicator {
+                        running: main.inflight > 0
+                    }
                 }
             }
 
