@@ -1,23 +1,31 @@
-import QtQuick 2.15
+import QtQuick
 import QtQuick.Controls 2.15
-import QtQuick.Layouts 1.15
-import QtQml.Models 2.15
-import QtQuick.Window 2.15
+import QtQuick.Layouts 2.15
 
-Window {
+ApplicationWindow {
+    id: window
     width: 1024
     height: 768
     visible: true
     title: qsTr("Nora the API explorer")
 
-    ColumnLayout {
-        anchors.fill: parent
+    readonly property bool isPortrait: width < height
 
+    menuBar: ToolBar {
+        id: toolBar
         RowLayout {
             id: rowLayout
-            Layout.fillWidth: true
+            anchors.fill: parent
 
-            Text {
+            // Hamburger menu button
+            Button {
+                text: "\uE5D2"  // Unicode hamburger: ☰
+                font.pixelSize: 16
+                onClicked: leftDrawer.open()
+                visible: leftDrawer.interactive
+            }
+
+            Label {
                 id: text1
                 text: "Endpoint: "
                 font.pixelSize: 12
@@ -31,25 +39,49 @@ Window {
                 model: main.urls
                 textRole: "display"
                 onAccepted: {
-                    if (find(editText) === -1) {
-                        model.insertRow(model.rowCount());
-                        model.setData(model.index(model.rowCount() - 1, 0), editText, 0);
-                    }
+                    print ("Server URL: " + editText)
+                    if (find(editText) === -1)
+                        model.insertRow(model.rowCount())
+                        model.setData(model.index(model.rowCount() -1, 0), editText, 0)
+                    main.url = editText
+                }
+                Binding {
+                    target: main
+                    property: "url"
+                    value: serverUrl.currentText
+                }
+
+            }
+            Button {
+                text: "Run"
+                onClicked: {
+                    main.response = "";
+                    main.run()
                 }
             }
-            Binding {
-                target: main
-                property: "url"
-                value: serverUrl.currentText
-            }
         }
+    }
 
-        RowLayout {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
+    Drawer {
+        id: leftDrawer
+        y: toolBar.height
+        height: parent.height - toolBar.height
+        edge: Qt.LeftEdge
+        modal: false
+        interactive: isPortrait
+        visible: !isPortrait
+        focus: true
+
+        GroupBox {
+            id: groupBox
+            anchors.fill: parent
+            anchors.margins: 5
+
+            title: "API Explorer"
+
             ColumnLayout {
                 id: rowLayout1
-                Layout.fillHeight: true
+                anchors.fill: parent
 
                 ScrollView {
                     Layout.fillHeight: true
@@ -59,9 +91,10 @@ Window {
                     ListView {
                         id: listView
                         highlightFollowsCurrentItem: true
-                        implicitWidth: contentItem.childrenRect.width
-                        implicitHeight: contentItem.childrenRect.width
                         model: main.apiNames
+                        onCurrentIndexChanged: {
+                            main.response = "";
+                        }
                         highlight: Rectangle {
                             color: "lightsteelblue"
                             radius: 5
@@ -82,94 +115,95 @@ Window {
                                     main.api = modelData;
                                 }
                             }
+                            Component.onCompleted: {
+                                if (index == ListView.view.currentIndex) {
+                                    main.api = modelData;
+                                }
+                            }
                         }
-                    }
-                }
-                RowLayout {
-                    Layout.fillWidth: true
-                    Button {
-                        text: "Run"
-                        onClicked: main.run()
-                        enabled: main.inflight == 0
-                    }
-
-                    BusyIndicator {
-                        running: main.inflight > 0
                     }
                 }
             }
+        }
+    }
 
-            ColumnLayout {
-                Layout.fillWidth: true
-                GroupBox {
-                    id: groupBox
-                    Layout.fillWidth: true
-                    implicitHeight: grid.height + 50
-                    title: main.api
-                    TableView {
-                        id: grid
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        height: childrenRect.height
-                        property bool editing: false
-                        clip: true
+    SplitView {
+        id: splitView
+        anchors.fill: parent
+        anchors.leftMargin: !leftDrawer.interactive ? leftDrawer.width + leftDrawer.x + 8 : 8
+        anchors.rightMargin: 8
+        anchors.topMargin: 8
+        anchors.bottomMargin: 8
+        orientation: Qt.Vertical
 
-                        model: main.params
-                        columnWidthProvider: function (column) {
-                            if (column == 2) {
-                                return 640;
-                            } else {
-                                return 100;
-                            }
-                        }
-                        delegate: Rectangle {
-                            border.width: 1
-                            implicitHeight: 30
-                            color: grid.currentRow === row ? "lightsteelblue" : "white"
+        Page {
+            SplitView.fillWidth: true
+            SplitView.preferredHeight: grid.implicitHeight + 150
+            SplitView.maximumHeight: parent.height - 150
+            SplitView.minimumHeight: 200
 
-                            Text {
-                                anchors.centerIn: parent
-                                text: display
-                                visible: !grid.editing
-                            }
+            header: Frame {
+                Label {
+                    anchors.fill: parent
+                    horizontalAlignment: Qt.AlignHCenter
+                    verticalAlignment: Qt.AlignVCenter
+                    text: main.api
+                }
+            }
 
-                            TextField {
-                                anchors.fill: parent
-                                text: display
-                                horizontalAlignment: TextInput.AlignHCenter
-                                verticalAlignment: TextInput.AlignVCenter
-                                visible: grid.editing
-                                onEditingFinished: {
-                                    display = text;
-                                    grid.editing = false;
-                                }
-                            }
+            contentItem: TableView {
+                id: grid
 
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: {
-                                    grid.currentRow = row;
-                                    if (!grid.editing) {
-                                        grid.editing = true;
-                                    }
-                                }
-                            }
+                selectionModel: ItemSelectionModel {}
+
+                model: main.params
+                columnWidthProvider: function (column) {
+                    if (column == 2) {
+                        return grid.width * 0.6;
+                    } else {
+                        return grid.width * 0.2;
+                    }
+                }
+                delegate: Rectangle {
+                    border.width: 1
+                    implicitHeight: 30
+
+                    required property bool editing
+                    required property string display
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: display
+                        visible: !editing
+                    }
+
+                    TableView.editDelegate: TextField {
+                        anchors.fill: parent
+                        text: display
+                        horizontalAlignment: TextInput.AlignHCenter
+                        verticalAlignment: TextInput.AlignVCenter
+                        Component.onCompleted: selectAll()
+
+                        TableView.onCommit: {
+                            display = text;
                         }
                     }
                 }
+            }
+        }
+                
 
-                ScrollView {
-                    Layout.fillHeight: true
-                    Layout.fillWidth: true
-                    ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+        ScrollView {
+            SplitView.fillHeight: true
+            SplitView.fillWidth: true
+            SplitView.maximumHeight: parent.height - 20
+            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-                    TextEdit {
-                        text: main.response
-                        readOnly: true
-                        selectByMouse: true
-                    }
-                }
+            TextEdit {
+                text: main.response
+                readOnly: true
+                selectByMouse: true
             }
         }
     }
