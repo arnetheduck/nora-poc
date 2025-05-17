@@ -133,7 +133,7 @@ proc processOne(
 
     let resp = await callWeb3(req.url, req.name, req.params)
     responder.respond(resp)
-  except CancelledError as exc:
+  except CancelledError:
     return false
   except CatchableError as exc:
     echo exc.getStackTrace()
