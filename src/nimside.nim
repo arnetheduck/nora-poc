@@ -1,4 +1,9 @@
-import ./metaobjectgen, seaqt/[qobject, qvariant, qmetatype], std/[sequtils, strutils, macros]
+import
+  ./metaobjectgen,
+  seaqt/[qobject, qvariant, qmetaobject, qmetatype],
+  std/[sequtils, strutils, macros]
+
+export qobject, qvariant, qmetaobject, qmetatype
 
 template toOpenArrayByte(v: string): openArray[byte] =
   v.toOpenArrayByte(0, v.high()) # double v eval!
@@ -16,7 +21,7 @@ proc assignMemCpy(v: var string, p: pointer) =
   tmp.delete()
 
 template declareMemCpy(T: type, v: untyped, p: pointer) =
-  when T is ref gen_qobject.QObject:
+  when T is ref gen_qobject_types.QObject:
     static:
       raiseAssert "receiving qobject pointers (ie connecting to signals that use qobject) not supported yet"
   var v: T
@@ -135,9 +140,9 @@ proc store[T](ret: T, where: var pointer) =
       where = nil
     else:
       store(ret[], where)
-  elif ret is gen_qobject.QObject:
+  elif ret is gen_qobject_types.QObject:
     cast[ptr pointer](where)[] = ret.h
-  elif ret is gen_qvariant.QVariant:
+  elif ret is gen_qvariant_types.QVariant:
     when compiles(ret.metaType()):
       discard ret.metaType().construct(where, ret.constData())
     else:
@@ -152,7 +157,6 @@ proc store[T](ret: T, where: var pointer) =
 
 proc genMethodCall(meth: NimMethodDef, name, obj, argv, offset: NimNode): NimNode =
   let
-    argLenLit = newLit(meth.params.len)
     readParams = nnkStmtList.newTree()
     delParams = nnkStmtList.newTree()
     call = nnkCall.newTree(name)
@@ -165,7 +169,6 @@ proc genMethodCall(meth: NimMethodDef, name, obj, argv, offset: NimNode): NimNod
       argIdxLit = newLit(paramIdx)
       argName = ident("arg" & $paramIdx)
       paramType = param.typ
-      toNim = ident("")
     readParams.add quote do:
       declareMemCpy(`paramType`, `argName`, `argv`[`argIdxLit` + `offset`])
     call.add quote do:
@@ -175,8 +178,6 @@ proc genMethodCall(meth: NimMethodDef, name, obj, argv, offset: NimNode): NimNod
     if meth.returnType.isVoid:
       call
     else:
-      let returnType = meth.returnType
-      let namelit = newLit(repr(returnType))
       quote:
         store(`call`, `argv`[0])
   nnkStmtList.newTree(readParams, caller, delParams)
@@ -185,19 +186,17 @@ proc readType(n: NimNode): NimTypeDef =
   expectKind(n, {nnkTypeDef})
   let
     typName = n[0].basename()
-    className = typName.strVal
-  let typ = nnkTypedef.newTree(typName, n[1], n[2])
+    typ = nnkTypedef.newTree(typName, n[1], n[2])
+    objTyp =
+      case typ[2].kind
+      of nnkRefTy:
+        typ[2][0]
+      of nnkObjectTy:
+        typ[2]
+      else:
+        error("Expected type, got " & $typ[2].kind, typ)
+    records = objTyp[2]
 
-  let objTyp =
-    case typ[2].kind
-    of nnkRefTy:
-      typ[2][0]
-    of nnkObjectTy:
-      typ[2]
-    else:
-      error("Expected type, got " & $typ[2].kind, typ)
-
-  let records = objTyp[2]
   var props: seq[NimPropDef]
   if records.kind == nnkRecList:
     for rec in records:
@@ -306,8 +305,6 @@ proc canConstruct(m: NimMethodDef): bool =
 proc processType(p: var NimTypeDef): (NimNode, NimNode) =
   let
     n = p.n
-    objTyp = p.objTyp
-    records = objTyp[2]
     props = p.props
     typName = n[0].basename()
     className = typName.strVal
@@ -338,16 +335,16 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
     let
       propName = prop.name
       propType = prop.typ
-      notifySignalLit =
+      signalNameLit =
         if prop.def.notifySignal.len > 0:
-          let notifyIndex =
-            if (let notifyIndex = findSignal(prop.def.notifySignal); notifyIndex >= 0):
-              notifyIndex
+          let signalIndex =
+            if (let signalIndex = findSignal(prop.def.notifySignal); signalIndex >= 0):
+              signalIndex
             else:
               let
                 name = ident(prop.def.notifySignal)
                 n = quote:
-                  proc `name`(o: `typName`)
+                  proc `name`*(o: `typName`)
 
               p.signals.add NimMethodDef(
                 n: n, name: name, returnType: voidTyp, params: @[]
@@ -355,56 +352,42 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
               pre.add n
               p.signals.high()
 
-          p.signals[notifyIndex].name
+          p.signals[signalIndex].name
         else:
           nil
 
-    if prop.def.writeSlot.len > 0:
-      let slotIdx =
-        if (let writeSlotIdx = findSlot(prop.def.writeSlot); writeSlotIdx >= 0):
-          writeSlotIdx
-        else:
-          p.slots.add NimMethodDef(
-            name: ident prop.def.writeSlot,
-            returnType: voidTyp,
-            params: @[NimParamDef(name: ident "newValue", typ: prop.typ)],
-          )
+    if prop.def.writeSlot.len > 0 and findSlot(prop.def.writeSlot) < 0:
+      p.slots.add NimMethodDef(
+        name: ident prop.def.writeSlot,
+        returnType: voidTyp,
+        params: @[NimParamDef(name: ident "newValue", typ: prop.typ)],
+      )
 
-          let writeSlotLit = p.slots[^1].name
+      let writeSlotLit = p.slots[^1].name
 
-          if notifySignalLit != nil:
-            pre.add quote do:
-              proc `writeSlotLit`*(o: `typName`, v: `propType`) =
-                if o.`propName` != v:
-                  o.`propName` = v
-                  o.`notifySignalLit`()
+      if signalNameLit != nil:
+        pre.add quote do:
+          proc `writeSlotLit`*(o: `typName`, v: `propType`) =
+            if o.`propName` != v:
+              o.`propName` = v
+              o.`signalNameLit`()
 
-          else:
-            pre.add quote do:
-              proc `writeSlotLit`*(o: `typName`, v: `propType`) =
-                o.`propName` = v
+      else:
+        pre.add quote do:
+          proc `writeSlotLit`*(o: `typName`, v: `propType`) =
+            o.`propName` = v
 
-          p.slots.high()
+    if prop.def.readSlot.len > 0 and findSlot(prop.def.readSlot) < 0:
+      p.slots.add NimMethodDef(
+        name: ident(prop.def.readSlot), returnType: propType, params: @[]
+      )
+      let slotName = p.slots[^1].name
+      pre.add quote do:
+        proc `slotName`*(o: `typName`): lent `propType` =
+          o.`propName`
 
-    if prop.def.readSlot.len > 0:
-      let slotIdx =
-        if (let slotIdx = findSlot(prop.def.readSlot); slotIdx >= 0):
-          slotIdx
-        else:
-          p.slots.add NimMethodDef(
-            name: ident(prop.def.readSlot), returnType: propType, params: @[]
-          )
-          let slotName = p.slots[^1].name
-          pre.add quote do:
-            proc `slotName`*(o: `typName`): lent `propType` =
-              o.`propName`
-
-          p.slots.high()
-
-  for notifyIndex, signal in p.signals:
-    let
-      notifySignalLit = signal.name
-      notifyIndexLit = newLit(notifyIndex)
+  for signalIndex, signal in p.signals:
+    let signalIndexLit = newLit(signalIndex)
     # TODO skip qvariant - we use it only to get access to the autogenerated
     #      type conversion
 
@@ -420,44 +403,110 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
         name = param.name
       variants.add quote do:
         let `id` =
-          when `name` is ref gen_qobject.QObject:
-            gen_qvariant.QVariant.fromValue(`name`[])
+          when `name` is ref gen_qobject_types.QObject:
+            gen_qvariant_types.QVariant.fromValue(`name`[])
           else:
-            gen_qvariant.QVariant.create(`name`)
-        `args`[`idx`] = `id`.constData()
+            gen_qvariant_types.QVariant.create(`name`)
+        `args`[`idx` + 1] = `id`.constData()
       delvariants.add quote do:
         `id`.delete()
 
     let self = signal.n.params[1][0]
 
-    if signal.params.len > 0:
-      signal.n.body = quote:
-        var `args`: array[`argCount`, pointer]
-        `variants`
-        gen_qobjectdefs.QMetaObject.activate(
-          `self`[], cint `notifyIndexLit`, addr `args`[0]
-        )
-        `delvariants`
-    else:
-      signal.n.body = quote:
-        gen_qobjectdefs.QMetaObject.activate(
-          `self`[], `staticMetaObject`(`typName`), cint `notifyIndexLit`, nil
-        )
+    signal.n.body =
+      if signal.params.len > 0:
+        quote:
+          var `args`: array[`argCount` + 1, pointer]
+          `variants`
+          gen_qobjectdefs_types.QMetaObject.activate(
+            `self`[],
+            `staticMetaObject`(`typName`),
+            cint `signalIndexLit`,
+            addr `args`[0],
+          )
+          `delvariants`
+      else:
+        quote:
+          gen_qobjectdefs_types.QMetaObject.activate(
+            `self`[], `staticMetaObject`(`typName`), cint `signalIndexLit`, nil
+          )
+    post.add signal.n
+
+  # Multi-threading version that takes a `ptr` instead of a `ref`
+  # TODO a bit ugly as far as approaches go - the user is supposed to pass
+  #      pointers to ref objects and deal with the lifetime issues that ensue
+  # TODO maybe not copy-paste the body generation :)
+  for signalIndex, signal in p.signals:
+    let
+      signalNameLit = signal.name
+      signalIndexLit = newLit(signalIndex)
+    # TODO skip qvariant - we use it only to get access to the autogenerated
+    #      type conversion
+
+    let
+      variants = nnkStmtList.newTree()
+      delvariants = nnkStmtList.newTree()
+      args = ident("args")
+      argCount = newLit(signal.params.len())
+    for i, param in signal.params:
+      let
+        idx = newLit(i)
+        id = ident("arg" & $i)
+        name = param.name
+      variants.add quote do:
+        let `id` =
+          when `name` is ref gen_qobject_types.QObject:
+            gen_qvariant_types.QVariant.fromValue(`name`[])
+          else:
+            gen_qvariant_types.QVariant.create(`name`)
+        `args`[`idx` + 1] = `id`.constData()
+      delvariants.add quote do:
+        `id`.delete()
+
+    let
+      self = ident("self")
+
+      body =
+        if signal.params.len > 0:
+          quote:
+            var `args`: array[`argCount` + 1, pointer]
+            `variants`
+            gen_qobjectdefs_types.QMetaObject.activate(
+              `self`[],
+              `staticMetaObject`(`typName`),
+              cint `signalIndexLit`,
+              addr `args`[0],
+            )
+            `delvariants`
+        else:
+          quote:
+            gen_qobjectdefs_types.QMetaObject.activate(
+              `self`[], `staticMetaObject`(`typName`), cint `signalIndexLit`, nil
+            )
+      selfPtrParam = nnkIdentDefs.newTree(
+        self,
+        quote do:
+          ptr typeof(`typName`()[]),
+        newEmptyNode(),
+      )
+
+    post.add newProc(
+      signalNameLit,
+      @[newEmptyNode(), selfPtrParam] &
+        signal.params.mapIt(nnkIdentDefs.newTree(it.name, it.typ, newEmptyNode())),
+      body,
+    )
 
   let
     signalsLit = nnkBracket.newTree(p.signals.mapIt(it.toMethodDef(isSignal = true)))
     slotsLit = nnkBracket.newTree(p.slots.mapIt(it.toMethodDef(isSignal = false)))
     propsLit = nnkBracket.newTree(p.props.mapIt(it.toPropDef()))
     typNameLit = newLit(className)
-
-  let
     metaObjectInst = ident(className & "MetaObjectInstance")
 
     metaObjectNode = quote:
-      import seaqt/qmetaobject
-
       var `metaObjectInst` {.global.}: pointer
-      proc `staticMetaObject`*(_: type `typName`): gen_qobjectdefs.QMetaObject =
+      proc `staticMetaObject`*(_: type `typName`): gen_qobjectdefs_types.QMetaObject =
         const (data, stringdata, metaTypes) =
           genMetaObjectData(`typNameLit`, `signalsLit`, `slotsLit`, `propsLit`)
         if `metaObjectInst` == nil:
@@ -469,10 +518,10 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
           )
           tmp.owned = false
           `metaObjectInst` = tmp.h
-        let x = gen_qobjectdefs.QMetaObject(h: `metaObjectInst`, owned: false)
+        let x = gen_qobjectdefs_types.QMetaObject(h: `metaObjectInst`, owned: false)
         x
 
-      method metaObject*(self: `typName`): gen_qobjectdefs.QMetaObject =
+      method metaObject*(self: `typName`): gen_qobjectdefs_types.QMetaObject =
         `staticMetaObject`(`typName`)
 
   pre.insert(0, metaObjectNode)
@@ -491,7 +540,9 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
       signalIdxLit,
       nnkStmtList.newTree(
         quote do:
-          gen_qobjectdefs.QMetaObject.activate(`self`[], cint `signalIdxLit`, `argv`)
+          gen_qobjectdefs_types.QMetaObject.activate(
+            `self`[], cint `signalIdxLit`, `argv`
+          )
       ),
     )
 
@@ -541,7 +592,6 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
     propCountLit = newLit(props.len)
     metacall = ident("metacall")
   post.add quote do:
-    import seaqt/QtCore/[gen_qobject, gen_qobjectdefs]
     method `metacall`(`self`: `typName`, c: cint, id: cint, a: pointer): cint =
       var `id` = gen_qobject.QObjectmetacall(`self`[], c, id, a)
       if `id` < 0:
@@ -584,7 +634,7 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
 
   post.add quote do:
     proc setup*(o: `typName`) =
-      gen_qobject.QObject.create(o)
+      gen_qobject_types.QObject.create(o)
 
   for signal in p.signals:
     if not canConstruct(signal):
@@ -595,11 +645,14 @@ proc processType(p: var NimTypeDef): (NimNode, NimNode) =
     let
       sigDef = signal.toMethodDef(isSignal = true)
       onSignal = ident("on" & titleCase(signal.name.strVal))
-      signature = "" # sigDef.signature()
+      signature = quote:
+        block:
+          const sig = cstring(`sigDef`.signature())
+          sig
       params = nnkFormalParams.newTree(newEmptyNode())
       callback = ident("callback")
       argv = ident("argv")
-      callCallback = genMethodCall(signal, callback, nil, argv, newLit(0))
+      callCallback = genMethodCall(signal, callback, nil, argv, newLit(1))
       callbackTy = nnkProcTy.newTree(
         params,
         nnkPragma.newTree(
