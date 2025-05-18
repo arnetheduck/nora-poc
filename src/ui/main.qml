@@ -1,209 +1,352 @@
 import QtQuick
-import QtQuick.Controls 2.15
-import QtQuick.Layouts 2.15
+import QtQuick.Controls.Material
+import QtQuick.Layouts
+import Qt.labs.qmlmodels
 
 ApplicationWindow {
     id: window
     width: 1024
     height: 768
     visible: true
-    title: qsTr("Nora the API explorer")
+    title: qsTr("nora • Web3 API Explorer")
+
+    Material.theme: Material.Dark
+    Material.primary: "black"
+    Material.background: "black"
+    Material.accent: "white"
+    Material.roundedScale: Material.NotRounded
+    Material.containerStyle: Material.Outlined
 
     readonly property bool isPortrait: width < height
 
-    menuBar: ToolBar {
-        id: toolBar
+    header: ToolBar {
+        padding: 8
+        background: Rectangle {
+            color: Material.background
+        }
         RowLayout {
-            id: rowLayout
             anchors.fill: parent
 
             // Hamburger menu button
             Button {
-                text: "\uE5D2"  // Unicode hamburger: ☰
-                font.pixelSize: 16
-                onClicked: leftDrawer.open()
-                visible: leftDrawer.interactive
+                id: hamburgerButton
+                Material.roundedScale: Material.NotRounded
+                text: "⋮"
+                font.pixelSize: 18
+                onClicked: smallLayout.toggle()
+                visible: window.isPortrait
             }
 
-            Label {
-                id: text1
-                text: "Endpoint: "
-                font.pixelSize: 12
-            }
-
-            ComboBox {
-                id: serverUrl
-                editable: true
-                selectTextByMouse: true
+            ToolButton {
+                id: titleLabel
                 Layout.fillWidth: true
-                model: main.urls
-                textRole: "display"
-                onAccepted: {
-                    print ("Server URL: " + editText)
-                    if (find(editText) === -1)
-                        model.insertRow(model.rowCount())
-                        model.setData(model.index(model.rowCount() -1, 0), editText, 0)
-                    main.url = editText
-                }
-                Binding {
-                    target: main
-                    property: "url"
-                    value: serverUrl.currentText
-                }
-
+                text: window.title
+                font.bold: true
+                onClicked: Qt.openUrlExternally("https://github.com/arnetheduck/nora-poc")
             }
-            Button {
-                text: "Run"
-                onClicked: {
-                    main.response = "";
-                    main.run()
-                }
+            // Spacer
+            Item {
+                Layout.preferredWidth: hamburgerButton.width
+                visible: hamburgerButton.visible
             }
         }
     }
 
-    Drawer {
-        id: leftDrawer
-        y: toolBar.height
-        height: parent.height - toolBar.height
-        edge: Qt.LeftEdge
-        modal: false
-        interactive: isPortrait
-        visible: !isPortrait
-        focus: true
-
-        GroupBox {
-            id: groupBox
+    Page {
+        id: apiSelector
+        implicitWidth: 300
+        padding: 8
+        contentWidth: listView.implicitWidth
+        header: Label {
+            id: headerLabel
+            text: "API Endpoints"
+            font.pixelSize: 16
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        ListView {
+            id: listView
             anchors.fill: parent
-            anchors.margins: 5
+            highlightFollowsCurrentItem: true
+            model: main.apiNames
+            currentIndex: 0
+            onCurrentIndexChanged: {
+                main.response = "";
+            }
 
-            title: "API Explorer"
+            Binding {
+                target: main
+                property: "api"
+                value: listView.model[listView.currentIndex]
+            }
+            clip: true
+            delegate: ItemDelegate {
+                highlighted: ListView.isCurrentItem
+                width: listView.width
+                contentItem: Label {
+                    text: modelData
+                    font.pixelSize: 14
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    height: 30
+                }
 
-            ColumnLayout {
-                id: rowLayout1
-                anchors.fill: parent
-
-                ScrollView {
-                    Layout.fillHeight: true
-                    implicitWidth: 150
-                    ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
-                    ListView {
-                        id: listView
-                        highlightFollowsCurrentItem: true
-                        model: main.apiNames
-                        onCurrentIndexChanged: {
-                            main.response = "";
-                        }
-                        highlight: Rectangle {
-                            color: "lightsteelblue"
-                            radius: 5
-                        }
-                        focus: true
-                        clip: true
-
-                        Component.onCompleted: {
-                            currentIndex = 0;
-                        }
-                        delegate: Text {
-                            text: modelData
-
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: {
-                                    listView.currentIndex = index;
-                                    main.api = modelData;
-                                }
-                            }
-                            Component.onCompleted: {
-                                if (index == ListView.view.currentIndex) {
-                                    main.api = modelData;
-                                }
-                            }
-                        }
-                    }
+                onClicked: {
+                    ListView.view.currentIndex = index
+                    smallLayout.toggle()
                 }
             }
         }
     }
 
-    SplitView {
-        id: splitView
-        anchors.fill: parent
-        anchors.leftMargin: !leftDrawer.interactive ? leftDrawer.width + leftDrawer.x + 8 : 8
-        anchors.rightMargin: 8
-        anchors.topMargin: 8
-        anchors.bottomMargin: 8
-        orientation: Qt.Vertical
+    Page {
+        id: mainLayout
+        Layout.fillWidth: true
+        Layout.fillHeight: true
+        padding: 16
 
-        Page {
-            SplitView.fillWidth: true
-            SplitView.preferredHeight: grid.implicitHeight + 150
-            SplitView.maximumHeight: parent.height - 150
-            SplitView.minimumHeight: 200
-
-            header: Frame {
-                Label {
-                    anchors.fill: parent
-                    horizontalAlignment: Qt.AlignHCenter
-                    verticalAlignment: Qt.AlignVCenter
-                    text: main.api
-                }
+        footer: ToolBar {
+            padding: 16
+            background: Rectangle {
+                color: Material.background
             }
-
-            contentItem: TableView {
-                id: grid
-
-                selectionModel: ItemSelectionModel {}
-
-                model: main.params
-                columnWidthProvider: function (column) {
-                    if (column == 2) {
-                        return grid.width * 0.6;
-                    } else {
-                        return grid.width * 0.2;
-                    }
+            RowLayout {
+                id: rowLayout
+                anchors.fill: parent
+                Label {
+                    text: "Endpoint: "
+                    font.bold: true
+                    Layout.alignment: Qt.AlignVCenter
                 }
-                delegate: Rectangle {
-                    border.width: 1
-                    implicitHeight: 30
-
-                    required property bool editing
-                    required property string display
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: display
-                        visible: !editing
-                    }
-
-                    TableView.editDelegate: TextField {
-                        anchors.fill: parent
-                        text: display
+                ComboBox {
+                    id: serverUrl
+                    editable: true
+                    selectTextByMouse: true
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    model: main.urls
+                    textRole: "display"
+                    contentItem: TextField {
+                        id: urlEdit
+                        text: serverUrl.displayText
+                        font: serverUrl.font
                         horizontalAlignment: TextInput.AlignHCenter
                         verticalAlignment: TextInput.AlignVCenter
-                        Component.onCompleted: selectAll()
-
-                        TableView.onCommit: {
-                            display = text;
+                        selectedTextColor: Material.primary
+                        mouseSelectionMode: TextInput.SelectWords
+                        background: Rectangle {
+                            color: "transparent"
                         }
+                        onEditingFinished: {
+                            if (serverUrl.find(urlEdit.text) === -1) {
+                                serverUrl.model.insertRow(serverUrl.model.rowCount());
+                                serverUrl.model.setData(serverUrl.model.index(serverUrl.model.rowCount() - 1, 0), urlEdit.text, 0);
+                            }
+                        }
+
+                        Binding {
+                            target: main
+                            property: "url"
+                            value: urlEdit.text
+                        }
+                    }
+                }
+                Button {
+                    Material.roundedScale: Material.NotRounded
+                    Layout.fillHeight: true
+                    text: !busyIndicator.running ? qsTr("Run") : ""
+                    enabled: !busyIndicator.running
+                    onClicked: {
+                        main.response = "";
+                        main.run()
+                    }
+                    BusyIndicator {
+                        id: busyIndicator
+                        anchors.fill: parent
+                        padding: 16
+                        visible: running
+                        running: main.inflight > 0
                     }
                 }
             }
         }
-                
+        SplitView {
+            id: splitView
+            anchors.fill: parent
+            orientation: Qt.Vertical
+            padding: 8
 
-        ScrollView {
-            SplitView.fillHeight: true
-            SplitView.fillWidth: true
-            SplitView.maximumHeight: parent.height - 20
-            ScrollBar.horizontal.policy: ScrollBar.AsNeeded
-            ScrollBar.vertical.policy: ScrollBar.AsNeeded
+            Page {
+                SplitView.fillWidth: true
+                SplitView.preferredHeight: grid.implicitHeight + 150
+                SplitView.maximumHeight: parent.height - 150
+                SplitView.minimumHeight: 200
 
-            TextEdit {
-                text: main.response
-                readOnly: true
-                selectByMouse: true
+                header: RowLayout {
+                    Label {
+                        horizontalAlignment: Qt.AlignHCenter
+                        verticalAlignment: Qt.AlignVCenter
+                        text: qsTr("Parameters") + " (" + main.api + ")"
+                        font.bold: true
+                        elide: Text.ElideRight
+                        wrapMode: Text.WordWrap
+                    }
+                }
+                Component {
+                    id: editableDelegate
+                    TextField {
+                        horizontalAlignment: TextInput.AlignHCenter
+                        verticalAlignment: TextInput.AlignVCenter
+                        selectedTextColor: Material.primary
+                        placeholderText: display
+
+                        onTextChanged: {
+                            if (text !== display) {
+                                let index = grid.index(row, column)
+                                grid.model.setData(index, text)
+                            }
+                        }
+                    }
+                }
+
+                Component {
+                    id: readonlyDelegate
+                    Label {
+                        horizontalAlignment: TextInput.AlignHCenter
+                        verticalAlignment: TextInput.AlignVCenter
+                        text: display
+                        font.bold: true
+                    }
+                }
+
+                TableView {
+                    id: grid
+                    anchors.fill: parent
+                    selectionModel: ItemSelectionModel {}
+
+                    model: main.params
+
+                    editTriggers: TableView.SingleTapped
+                    columnWidthProvider: function (column) {
+                        if (column == 2) {
+                            return grid.width * 0.6;
+                        } else {
+                            return grid.width * 0.2;
+                        }
+                    }
+                    delegate: FocusScope {
+                        id: delegateItem
+                        implicitHeight: 40
+
+                        required property bool editing
+                        required property string display
+                        required property bool selected
+                        required property bool current
+                        required property int row
+                        required property int column
+                        property bool editable
+
+                        Loader {
+                            id: delegateLoader
+                            property alias display: delegateItem.display
+                            property alias row: delegateItem.row
+                            property alias column: delegateItem.column
+                            anchors.fill: parent
+                            sourceComponent: editable ? editableDelegate : readonlyDelegate
+                            Component.onCompleted: {
+                                // one time only. Avoiding some weird animations on destruction
+                                delegateItem.editable = grid.model.flags(grid.index(row, column)) & Qt.ItemIsEditable ? true : false
+                            }
+                        }
+                    }
+                }
+            }
+
+            Page {
+                SplitView.fillHeight: true
+                SplitView.fillWidth: true
+                SplitView.maximumHeight: parent.height - 20
+                header: Label {
+                    text: qsTr("Response")
+                    font.bold: true
+                }
+                ScrollView {
+                    anchors.fill: parent
+                    ScrollBar.horizontal.policy: ScrollBar.AsNeeded
+                    ScrollBar.vertical.policy: ScrollBar.AsNeeded
+
+                    TextArea {
+                        text: main.response
+                        readOnly: true
+                        selectByMouse: true
+                        wrapMode: TextArea.Wrap
+                        selectedTextColor: Material.primary
+                    }
+                }
+            }
+        }
+    }
+
+    LayoutChooser {
+        id: layoutChooser
+        anchors.fill: parent
+        layoutChoices: [
+            smallLayout,
+            largeLayout
+        ]
+        criteria: [
+            window.isPortrait,
+            true
+        ]
+
+        property Item smallLayout: SwipeView {
+            id: smallLayout
+            anchors.fill: parent
+            parent: layoutChooser
+            padding: 8
+            currentIndex: 0
+            function toggle() {
+                currentIndex = (currentIndex + 1) % count
+            }
+            Item {
+                ColumnLayout {
+                    id: rowLayout1
+                    anchors.fill: parent
+                    LayoutItemProxy { 
+                        target: apiSelector
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                    }
+                }
+            }
+            Item {
+                ColumnLayout {
+                    id: rowLayout2
+                    anchors.fill: parent
+                    LayoutItemProxy {
+                        target: mainLayout
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                    }
+                }
+            }
+        }
+
+        property Item largeLayout: RowLayout {
+            id: largeLayout
+            anchors.fill: parent
+            anchors.leftMargin: 8
+            anchors.rightMargin: 8
+            parent: layoutChooser
+
+            LayoutItemProxy {
+                target: apiSelector
+                Layout.fillHeight: true
+            }
+            LayoutItemProxy {
+                target: mainLayout
+                Layout.fillWidth: true
+                Layout.fillHeight: true
             }
         }
     }
