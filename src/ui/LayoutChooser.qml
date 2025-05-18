@@ -1,0 +1,42 @@
+import QtQuick
+
+Item {
+    id: __layoutChooser
+    property var chosenLayout: undefined
+    property list<bool> criteria: []
+    property list<var> layoutChoices: []
+
+    implicitWidth: chosenLayout.implicitWidth
+    implicitHeight: chosenLayout.implicitHeight
+
+    onCriteriaChanged: {
+        showAndHide()
+    }
+
+    onLayoutChoicesChanged: {
+        showAndHide()
+    }
+
+    function showAndHide() {
+        const oldLayout = chosenLayout
+
+        let i = 0
+        for (; i < criteria.length; i++) {
+            if (criteria[i])
+                break
+        }
+
+        if (i < layoutChoices.length)
+            chosenLayout = layoutChoices[i]
+        else if (layoutChoices.length > 0)
+            chosenLayout = layoutChoices[0]
+        else
+            return
+
+        for (i = 0; i < layoutChoices.length; i++) {
+            layoutChoices[i].visible = false
+        }
+        chosenLayout.visible = true
+        chosenLayout.ensurePolished()
+    }
+}
