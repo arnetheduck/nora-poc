@@ -1,3 +1,7 @@
+# Nora the Web3 API explorer
+
+https://github.com/user-attachments/assets/e2451c44-4e3b-44fa-926b-01fdc39d89f5
+
 ## Build instructions
 
 Using [nimble 0.18.0+](https://github.com/nim-lang/nimble/releases):
