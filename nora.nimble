@@ -17,5 +17,5 @@ requires "nim >= 2.0.12",
 
 # Include task scripts
 include "setup_android.nims"
-# include "deploy_android.nims"
 include "deploy_android.nims"
+include "build_plugin.nims"

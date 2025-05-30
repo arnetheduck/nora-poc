@@ -4,15 +4,18 @@ import
   chronicles,
   json_rpc/[client, private/jrpc_sys],
   chronos,
-  ./[apicalls, threadchannel]
+  ./[apicalls, threadchannel, plugingen]
 
 import
   seaqt/[
     qapplication, qabstractlistmodel, qabstracttablemodel, qqmlapplicationengine,
     qqmlcontext, qurl, qobject, qvariant, qmetatype, qmetaproperty, qstringlistmodel,
+    qqmlextensionplugin
   ],
   seaqt/QtCore/[gen_qnamespace, qtcore_pkg],
   ./nimside
+
+const endpointUri = "http://localhost:8545"
 
 func gorgeOrFail(cmd: string): string {.compileTime.} =
   let (output, exitCode) = gorgeEx(cmd)
@@ -186,14 +189,11 @@ qobject:
         except CatchableError as exc:
           "Can't encode request: " & exc.msg
 
-proc initApp(uri: string) =
-  let
-    _ = QApplication.create()
-    main = MainModel(
-      urls: QStringListModel.create([uri]), url: uri, apiNames: apiList.mapIt(it.name)
-    )
-    engine = QQmlApplicationEngine.create()
-
+proc newMainModel(uri: string, apiNames: seq[string]): MainModel =
+  let main = MainModel()
+  main.urls = QStringListModel.create([uri])
+  main.url = uri
+  main.apiNames = apiList.mapIt(it.name)
   main.params = ParamsList.init(apiList[0])
   main.worker = WorkerObject()
   main.worker.setup()
@@ -213,6 +213,13 @@ proc initApp(uri: string) =
           break
 
   main.chan.open()
+  main
+
+proc initApp(uri: string) =
+  let
+    _ = QApplication.create()
+    main = newMainModel(uri, apiList.mapIt(it.name))
+    engine = QQmlApplicationEngine.create()
 
   var ct: Thread[ThreadArg]
   createThread(ct, chronosThread, (addr main.chan, addr main.worker[]))
@@ -221,7 +228,6 @@ proc initApp(uri: string) =
 
   engine.addImportPath("qrc:/")
   engine.load(QUrl.create("qrc:/ui/main.qml"))
-  # engine.load(QUrl.create("file://home/arnetheduck/status/nora/src/ui/main.qml"))
 
   discard QApplication.exec()
 
@@ -230,12 +236,33 @@ proc initApp(uri: string) =
 
   main.chan.close()
 
+type NoraPlugin = ref object of VirtualQQmlExtensionPlugin
+  main: MainModel
+  ct: Thread[ThreadArg]
+
+method registerTypes*(self: NoraPlugin, uri: cstring) =
+  echo "TODO: REGISTER TYPES FROM NIM THERE!"
+
+method initializeEngine*(self: NoraPlugin, engine: QQmlEngine, uri: cstring) =
+  self.main = newMainModel(endpointUri, apiList.mapIt(it.name))
+
+  try:
+    createThread(self.ct, chronosThread, (addr self.main.chan, addr self.main.worker[]))
+  except:
+    echo "createThread failed!"
+
+  engine.rootContext().setContextProperty("main", self.main[])
+
 when appType == "lib" or appType == "staticlib":
   proc NimMain() {.importc.}
   proc main(): cint {.exportc, dynlib, cdecl.} =
     NimMain() # Initialize Nim runtime first
-    initApp("http://localhost:8545")
+    initApp(endpointUri)
     return 0
 
+when appType == "lib" and defined(moduleName):
+  const moduleName {.strdefine.}: string = "Nora"
+  generatePlugin(T = NoraPlugin, moduleName, uri = "Nora")
+
 when isMainModule and appType != "lib" and appType != "staticlib":
-  initApp("http://localhost:8545")
+  initApp(endpointUri)
