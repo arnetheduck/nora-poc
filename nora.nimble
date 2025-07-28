@@ -10,7 +10,7 @@ bin = @["nora"]
 # Dependencies
 
 requires "nim >= 2.0.12",
-  "https://github.com/status-im/nim-web3.git",
+  "web3 >= 0.7.0",
   "https://github.com/seaqt/nim-seaqt.git#qt-6.4",
   "https://github.com/alexjba/prl-to-pc.git",
   "stew"
