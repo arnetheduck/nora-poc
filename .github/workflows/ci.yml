@@ -1,0 +1,18 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: nim-lang/setup-nimble-action@v1
+      - run:
+          sudo apt-get update
+          sudo apt-get install -y qt6-base-dev qt6-base-private-dev qt6-declarative-dev
+          nimble build -l
