@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+      - uses: nim-lang/setup-nimble-action@v1
+        with:
+          nimble-version: '0.20.1' # default is 'latest'. You could also use `nightly` to get #HEAD
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          nimble build -l
